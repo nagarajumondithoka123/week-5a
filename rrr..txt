@@ -1,0 +1,287 @@
+# WEKA Knowledge Flow – Complete Practical
+
+WEKA Knowledge Flow is a visual, drag-and-drop environment for building machine-learning pipelines. For this experiment, you can use Java code to run the same three tasks programmatically, and then recreate the workflows in Knowledge Flow.
+
+The experiment covers:
+
+1. Association rule mining: Apriori and FP-Growth.
+2. Cross-validation: J48 with accuracy, precision, recall, and confusion matrix.
+3. ROC comparison: J48 and Random Forest evaluated on the same cross-validation folds, with both ROC curves displayed in one window.
+
+## 1. Complete Java code
+
+Save this file as `WekaKnowledgeFlowExperiment.java`.
+
+This example uses `weather.nominal.arff`, whose attributes are already nominal. Add the WEKA JAR to your Java project's classpath before running it.
+
+java
+```
+
+import java.util.Random;
+import javax.swing.JFrame;
+import java.awt.BorderLayout;
+
+import weka.core.Instances;
+import weka.core.converters.ConverterUtils.DataSource;
+
+import weka.associations.Apriori;
+import weka.associations.FPGrowth;
+
+import weka.classifiers.Classifier;
+import weka.classifiers.Evaluation;
+import weka.classifiers.trees.J48;
+import weka.classifiers.trees.RandomForest;
+
+import weka.classifiers.evaluation.ThresholdCurve;
+import weka.gui.visualize.PlotData2D;
+import weka.gui.visualize.VisualizePanel;
+
+public class WekaKnowledgeFlowExperiment {
+
+    static final String FILE =
+        "data/weather.nominal.arff";
+
+    static final int FOLDS = 10;
+    static final int SEED = 1;
+
+    // Load dataset
+    public static Instances loadData(String file)
+            throws Exception {
+
+        Instances data =
+            new DataSource(file).getDataSet();
+
+        data.setClassIndex(data.numAttributes() - 1);
+        return data;
+    }
+
+    // PART 1: Association Rule Mining
+    public static void associationRules(Instances data)
+            throws Exception {
+
+        System.out.println("\n=== APRIORI ===");
+
+        Apriori apriori = new Apriori();
+        apriori.setNumRules(10);
+        apriori.buildAssociations(data);
+
+        System.out.println(apriori);
+
+        System.out.println("\n=== FP-GROWTH ===");
+
+        FPGrowth fp = new FPGrowth();
+        fp.buildAssociations(data);
+
+        System.out.println(fp);
+    }
+
+    // PART 2: J48 Cross-validation
+    public static Evaluation evaluateJ48(Instances data)
+            throws Exception {
+
+        J48 tree = new J48();
+
+        Evaluation evaluation = new Evaluation(data);
+
+        evaluation.crossValidateModel(
+            tree, data, FOLDS, new Random(SEED));
+
+        System.out.println("\n=== J48 CROSS-VALIDATION ===");
+
+        System.out.printf("Accuracy: %.2f%%%n",
+            evaluation.pctCorrect());
+
+        System.out.printf("Kappa: %.4f%n",
+            evaluation.kappa());
+
+        System.out.println(
+            evaluation.toClassDetailsString());
+
+        System.out.println(
+            evaluation.toMatrixString());
+
+        System.out.println("\n=== J48 TREE ===");
+
+        // Build a tree on all instances for display
+        tree.buildClassifier(data);
+        System.out.println(tree);
+
+        return evaluation;
+    }
+
+    // PART 3: ROC curve generation
+    public static Instances createRocCurve(
+            Evaluation evaluation, int classIndex)
+            throws Exception {
+
+        ThresholdCurve tc = new ThresholdCurve();
+
+        return tc.getCurve(
+            evaluation.predictions(), classIndex);
+    }
+
+    // Display J48 and Random Forest ROC curves
+    public static void plotRocCurves(
+            Instances data) throws Exception {
+
+        Classifier j48 = new J48();
+        Classifier rf = new RandomForest();
+
+        Evaluation evalJ48 = new Evaluation(data);
+        Evaluation evalRF = new Evaluation(data);
+
+        // Use identical folds and seed
+        evalJ48.crossValidateModel(
+            j48, data, FOLDS, new Random(SEED));
+
+        evalRF.crossValidateModel(
+            rf, data, FOLDS, new Random(SEED));
+
+        // Use the last class value as the positive class
+        int positiveClass = data.numClasses() - 1;
+
+        Instances rocJ48 =
+            createRocCurve(evalJ48, positiveClass);
+
+        Instances rocRF =
+            createRocCurve(evalRF, positiveClass);
+
+        double aucJ48 =
+            ThresholdCurve.getROCArea(rocJ48);
+
+        double aucRF =
+            ThresholdCurve.getROCArea(rocRF);
+
+        System.out.printf(
+            "\nJ48 ROC AUC: %.4f%n", aucJ48);
+
+        System.out.printf(
+            "Random Forest ROC AUC: %.4f%n", aucRF);
+
+        // Find ROC axes
+        int xJ48 = rocJ48.attribute("False Positive Rate")
+                          .index() - 1;
+        int yJ48 = rocJ48.attribute("True Positive Rate")
+                          .index() - 1;
+
+        int xRF = rocRF.attribute("False Positive Rate")
+                        .index() - 1;
+        int yRF = rocRF.attribute("True Positive Rate")
+                        .index() - 1;
+
+        // Prepare first plot
+        PlotData2D plotJ48 = new PlotData2D(rocJ48);
+        plotJ48.setPlotName("J48");
+        plotJ48.setXindex(xJ48);
+        plotJ48.setYindex(yJ48);
+
+        // Prepare second plot
+        PlotData2D plotRF = new PlotData2D(rocRF);
+        plotRF.setPlotName("Random Forest");
+        plotRF.setXindex(xRF);
+        plotRF.setYindex(yRF);
+
+        // Display both plots in the same window
+        VisualizePanel panel = new VisualizePanel();
+        panel.setName("ROC Curve Comparison");
+
+        panel.addPlot(plotJ48);
+        panel.addPlot(plotRF);
+
+        JFrame frame = new JFrame(
+            "J48 vs Random Forest ROC Curves");
+
+        frame.setDefaultCloseOperation(
+            JFrame.DISPOSE_ON_CLOSE);
+
+        frame.setLayout(new BorderLayout());
+        frame.add(panel, BorderLayout.CENTER);
+        frame.setSize(900, 650);
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
+
+    public static void main(String[] args)
+            throws Exception {
+
+        Instances data = loadData(FILE);
+
+        System.out.println("Dataset loaded successfully");
+        System.out.println("Instances: "
+            + data.numInstances());
+        System.out.println("Attributes: "
+            + data.numAttributes());
+        System.out.println("Class: "
+            + data.classAttribute().name());
+
+        associationRules(data);
+
+        evaluateJ48(data);
+
+        plotRocCurves(data);
+    }
+}
+```
+
+Note: WEKA API methods can vary by release. If your installed version does not expose the FP-Growth or plotting classes, install or enable the corresponding WEKA package and use the matching WEKA version. The ROC plotting code assumes a WEKA release that provides `Evaluation.predictions()` and `VisualizePanel`.
+
+## 2. Knowledge Flow layout
+
+You can also create the experiment directly in the WEKA GUI without Java code.
+
+### Part A — Apriori and FP-Growth
+
+ArffLoader
+
+Load weather.nominal.arff
+
+Apriori
+
+Generate rules
+
+TextViewer
+
+FP-Growth
+
+Find frequent patterns
+
+TextViewer
+
+Steps:
+
+1. Open WEKA and launch KnowledgeFlow.
+2. Add an `ArffLoader` and configure the ARFF file path.
+3. Add `Apriori`, `FPGrowth`, and `TextViewer` components.
+4. Connect the loader's data output to both association algorithms.
+5. Connect each algorithm's textual output to a TextViewer, using the appropriate connection type available in your WEKA version.
+6. Start the workflow and inspect the rules.
+
+For numeric datasets such as Iris or Glass, insert a `Discretize` filter before association mining.
+
+### Part B — J48 cross-validation
+
+Connect the components in this order:
+
+`ArffLoader → ClassAssigner → CrossValidationFoldMaker → J48 → ClassifierPerformanceEvaluator → TextViewer`
+
+Configure the `ClassAssigner` to use the target class attribute. Use 10 folds and ensure the training and testing connections from the fold maker are wired to the appropriate classifier inputs.
+
+Expected results include accuracy, precision, recall, F-measure, and a confusion matrix.
+
+### Part C — Multiple ROC curves
+
+Use this logical pipeline:
+
+`ArffLoader → ClassAssigner → CrossValidationFoldMaker`
+
+Then connect the fold maker to both J48 and Random Forest. Connect each classifier's evaluation predictions to its ROC/threshold-curve processing component, and connect both curve outputs to a shared `PerformancePlotter` if supported by your installed Knowledge Flow version.
+
+Some WEKA versions expose different ROC and plotter component names or connection types. The Java example above provides the alternative of overlaying both ROC curves in one window.
+
+## 3. Expected output
+
+- Association mining: Apriori rules and FP-Growth frequent patterns.
+- J48 evaluation: Cross-validation accuracy, Kappa, precision, recall, F-measure, and confusion matrix.
+- ROC comparison: One plot containing the J48 and Random Forest curves, with each classifier's AUC printed to the console.
+
+The example AUC values in your problem statement are illustrative; actual results depend on the dataset, WEKA version, classifier settings, and cross-validation procedure.
